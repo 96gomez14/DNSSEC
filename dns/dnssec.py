@@ -157,7 +157,6 @@ def _find_candidate_keys(keys, rrsig):
     for rdata in rdataset:
         if rdata.algorithm == rrsig.algorithm and \
                 key_id(rdata) == rrsig.key_tag:
-            print("This is correct")
             candidate_keys.append(rdata)
     return candidate_keys
 

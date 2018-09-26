@@ -9,6 +9,15 @@ L = {"a.root-servers.net":'198.41.0.4', "b.root-servers.net":'199.9.14.201', "c.
 "l.root-servers.net":'199.7.83.42', "m.root-servers.net":'202.12.27.33'}
 
 def find_answer_iter(m, typ_num):
+    fr = open("root.keys", "r")
+    lines = fr.readlines()
+    firstline = lines[0].split()
+    secondline = lines[1].split()
+    #zsk = dns.rrset.from_text(dns.name.from_text(firstline[0]),int(firstline[1]), dns.rdataclass.from_text(firstline[2]), dns.rdatatype.from_text(firstline[3]), firstline[4:])
+    #ksk = dns.rrset.from_text(dns.name.from_text(secondline[0]), int(secondline[1]), dns.rdclass.from_text(secondline[2]), dns.rdatatype.from_text(secondline[3]),  secondline[4:])
+    zsk = None
+    ksk = None
+    fr.close()
     enabled = True
     global L
     keys = L.keys()
@@ -26,20 +35,18 @@ def find_answer_iter(m, typ_num):
     query = None
     rk = None
     mk = None
-    mk = dns.message.make_query(right_key, 48, want_dnssec= True)
-    rk = dns.query.udp(mk, L[right_key])
-    zsk = None
-    ksk = None
+    where = None
+    rrsig = None
+    ds = None
     while len(r.answer) == 0 and (curr_t - t) < 5:
+        if ds != None and dnskeys != None:
+            print("HIT")
+            dns.dnssec._validate(ds, rrsig, keys)
         query = r.question[0].to_text().split()[0]
         auth_info = r.authority[0].to_text().split('\n')[0].split()
         corr_ip = None
-        where = None
-        rrsig = None
-        ds = None
-        keys = {}
-        for auth in r.authority:
-            print(auth.to_text())
+        #for auth in r.authority:
+        #    print(auth.to_text())
         #    if auth.to_text().split()[3] == "DS":
         #        ds = auth
         #    elif auth.to_text().split()[3] == "RRSIG":
@@ -65,28 +72,23 @@ def find_answer_iter(m, typ_num):
                     break
         mk = dns.message.make_query(auth_info[0], 48, want_dnssec= True)
         rk = dns.query.udp(mk, where)
+        dnskeys = None
         for answer in rk.answer:
-            if answer.to_text().split()[4] == "256":
-                zsk = answer
-            elif answer.to_text().split()[4] == "257":
-                ksk = answer
+            if answer.to_text().split()[4] == "256" or answer.to_text().split()[4] == "257":
+                dnskeys = answer
         keys = {}
         r = dns.query.udp(m, where, timeout=5)
         for auth in r.authority:
-            #print(auth.to_text())
             if auth.to_text().split()[3] == "DS":
                 ds = auth
             elif auth.to_text().split()[3] == "RRSIG":
                 rrsig = auth
-        if ds != None and rrsig != None:
-            print("Validating...")
-            keys[rrsig[0].signer] = zsk
-            #dns.dnssec._validate(ds, rrsig, keys)
+                keys[rrsig[0].signer] = dnskeys
         curr_t = time.time()
 
     if (curr_t - t) >= 5:
         return None
-
+    dns.dnssec._validate(r.answer[0], r.answer[1], {r.answer[1][0].signer:dnskeys})  #Check for this in above loop.
     return (r, enabled)
 
 def find_answer_recur(m, typ_num):
