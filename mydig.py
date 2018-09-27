@@ -91,8 +91,8 @@ def main():
         print("ANSWER Section")
         for r in rs:
             time += r.time
-            size += r.request_payload
             for answer in r.answer:
+                size += len(answer.to_text())
                 print(answer.to_text())
         print('\n')
         print("Query time: " + str(time * 1000) + "ms")
