@@ -1,6 +1,7 @@
 import dns.query
 import dns.message
 import dns.dnssec
+import dns.tokenizer
 
 import sys
 import time
@@ -8,15 +9,20 @@ import time
 L = {"a.root-servers.net":'198.41.0.4', "b.root-servers.net":'199.9.14.201', "c.root-servers.net":'192.33.4.12', "d.root-servers.net":'199.7.91.13', "e.root-servers.net":'192.203.230.10',"f.root-servers.net":'192.5.5.241',"g.root-servers.net":'192.112.36.4', "h.root-servers.net":'198.97.190.53',"i.root-servers.net":'192.36.148.17',"j.root-servers.net":'192.58.128.30', "k.root-servers.net":'193.0.14.129',
 "l.root-servers.net":'199.7.83.42', "m.root-servers.net":'202.12.27.33'}
 
+def validate(data, rrsig, dnskeys, dnskeys_rrsig):
+    keys = {}               #is for the actual answer to the query, not some DS (it doesn't exist at the authoritative DNS server's level).
+    keys[rrsig[0].signer] = dnskeys
+    dns.dnssec._validate(data, rrsig, keys)  #Check for this in above loop.
+    keys = {}               #Empty the keys dictionary for the next validation we perform, involving the DNSKEY RRSET
+    keys[dnskeys_rrsig[0].signer] = dnskeys
+    dns.dnssec._validate(dnskeys, dnskeys_rrsig, keys)
+
 def find_answer_iter(m, typ_num):
     fr = open("root.keys", "r")
-    lines = fr.readlines()
-    firstline = lines[0].split()
-    secondline = lines[1].split()
-    #zsk = dns.rrset.from_text(dns.name.from_text(firstline[0]),int(firstline[1]), dns.rdataclass.from_text(firstline[2]), dns.rdatatype.from_text(firstline[3]), firstline[4:])
-    #ksk = dns.rrset.from_text(dns.name.from_text(secondline[0]), int(secondline[1]), dns.rdclass.from_text(secondline[2]), dns.rdatatype.from_text(secondline[3]),  secondline[4:])
-    zsk = None
-    ksk = None
+    fields = fr.read().split()
+    dnskeys = None
+    tokenizer = dns.tokenizer.Tokenizer(f= "root.keys")
+    dnskeys = dns.rrset.from_text(dns.name.from_text(fields[0]),int(fields[1]), dns.rdataclass.from_text(fields[2]), dns.rdatatype.from_text(fields[3]), tokenizer)
     fr.close()
     enabled = True
     global L
@@ -37,28 +43,40 @@ def find_answer_iter(m, typ_num):
     mk = None
     where = None
     rrsig = None
-    ds = None
+    prev_ds = None
+    curr_ds = None
+    dnskeys = None
     while len(r.answer) == 0 and (curr_t - t) < 5:
-        if ds != None and dnskeys != None:
-            print("HIT")
-            dns.dnssec._validate(ds, rrsig, keys)
         query = r.question[0].to_text().split()[0]
         auth_info = r.authority[0].to_text().split('\n')[0].split()
         corr_ip = None
-        #for auth in r.authority:
-        #    print(auth.to_text())
-        #    if auth.to_text().split()[3] == "DS":
-        #        ds = auth
-        #    elif auth.to_text().split()[3] == "RRSIG":
-        #        rrsig = auth
-        if ds == None:
+        for auth in r.authority:
+            if auth.to_text().split()[3] == "DS":
+                curr_ds = auth
+            elif auth.to_text().split()[3] == "RRSIG":
+                rrsig = auth
+        if curr_ds == None or dnskeys == None or rrsig == None or dnskeys_rrsig == None:
             enabled = False
-
+        else:
+            validate(curr_ds, rrsig, dnskeys, dnskeys_rrsig)
+            if prev_ds != None:
+                ksk = None
+                splitkeys = dnskeys.to_text().split('\n')
+                for key in splitkeys:
+                    if key.split()[4] == '257':
+                        ksk = key
+                split_ksk = ksk.split()
+                print(prev_ds.to_text())
+                print(dnskeys.to_text())
+                full_ksk = dns.rdtypes.dnskeybase.DNSKEYBase(dns.rdataclass.from_text(split_ksk[2]), dns.rdatatype.from_text(split_ksk[3]), int(split_ksk[4]), int(split_ksk[5]), int(split_ksk[6]), split_ksk[7])
+                ds_replica = dns.dnssec.make_ds(split_ksk[0], full_ksk.key, dns.dnssec.algorithm_to_text(full_ksk.algorithm))
+                if prev_ds.digest != ds_replica.digest:
+                    print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAHHHHHHHH!!!! Unequal hashes! Run for your lives!")
+                    sys.exit(1)
         #if auth_info[4] == query:
         #    return None
         if len(r.additional) == 0:      #Need to instead perform full resolution on an upper-level server, auth_info, and get its A-record
             mm = dns.message.make_query(auth_info[4], 1, want_dnssec = True)
-
             rs = find_answer_recur(mm, 1)
             if rs == None:      #The base case that actually times out will return below, returning None;
                 return rs       #this conditional stmt is for the higher layers in the recursion stack.
@@ -76,19 +94,16 @@ def find_answer_iter(m, typ_num):
         for answer in rk.answer:
             if answer.to_text().split()[4] == "256" or answer.to_text().split()[4] == "257":
                 dnskeys = answer
-        keys = {}
+            elif answer.to_text().split()[3] == "RRSIG":
+                dnskeys_rrsig = answer
         r = dns.query.udp(m, where, timeout=5)
-        for auth in r.authority:
-            if auth.to_text().split()[3] == "DS":
-                ds = auth
-            elif auth.to_text().split()[3] == "RRSIG":
-                rrsig = auth
-                keys[rrsig[0].signer] = dnskeys
+        prev_ds = curr_ds
         curr_t = time.time()
 
     if (curr_t - t) >= 5:
         return None
-    dns.dnssec._validate(r.answer[0], r.answer[1], {r.answer[1][0].signer:dnskeys})  #Check for this in above loop.
+    if (len(r.answer)) > 1:     #Now, the RRSIG we are validating (besides for the DNSKEY set)
+        validate(r.answer[0], r.answer[1], dnskeys, dnskeys_rrsig)
     return (r, enabled)
 
 def find_answer_recur(m, typ_num):
