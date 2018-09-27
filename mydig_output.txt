@@ -1,0 +1,47 @@
+Input: python mydig.py www.cnn.com A
+
+QUESTION SECTION:
+cnn.com. IN A
+
+
+ANSWER Section
+cnn.com. 60 IN A 151.101.193.67
+cnn.com. 60 IN A 151.101.129.67
+cnn.com. 60 IN A 151.101.1.67
+cnn.com. 60 IN A 151.101.65.67
+
+
+Query time: 22.202253341674805ms
+Msg size rcvd: 124
+
+
+
+Input: python mydig.py stonybrook.edu NS
+
+QUESTION SECTION:
+stonybrook.edu. IN NS
+
+
+ANSWER Section
+stonybrook.edu. 900 IN NS nocnoc.stonybrook.edu.
+stonybrook.edu. 900 IN NS whoisthere.stonybrook.edu.
+stonybrook.edu. 900 IN NS mewho.stonybrook.edu.
+
+
+
+Input: python mydig.py cisco.org MX
+
+Query time: 3.818035125732422ms
+Msg size rcvd: 149
+QUESTION SECTION:
+cisco.org. IN MX
+
+
+ANSWER Section
+cisco.org. 3600 IN MX 20 itsmailguard.mx2.fusemail.net.
+cisco.org. 3600 IN MX 10 itsmailguard.mx1.fusemail.net.
+cisco.org. 3600 IN MX 30 itsmailguard.mx3.fusemail.net.
+
+
+Query time: 48.50292205810547ms
+Msg size rcvd: 167
